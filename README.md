@@ -36,3 +36,7 @@ npm install
 npm run package
 ```
 The generated `.vsix` can be shared and installed via VS Code’s Extensions panel “Install from VSIX...”.
+
+## Metadata
+- Repository: https://github.com/liaojianjin/vscode-gerrit-push
+- License: MIT (see `LICENSE`)

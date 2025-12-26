@@ -21,6 +21,11 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liaojianjin/vscode-gerrit-push.git"
+  },
+  "license": "MIT",
   "contributes": {
     "commands": [
       {
