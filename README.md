@@ -21,6 +21,7 @@ npm install
 2) In the Source Control view title bar, click the icon button **Push HEAD to Gerrit**, or run the command with the same name from the Command Palette.
 3) Pick the target branch (current branch, configured default branch, or a custom value).
 4) Confirm the prompt `git push <remote> HEAD:refs/for/<branch>`.
+5) The extension resolves the Git root via VS Code’s Git SCM (falls back to `git rev-parse`), so multi-repo workspaces push from the right repo.
 
 ## Settings
 - `gerritPush.defaultBranch`: default branch for `refs/for/<branch>` (empty = current branch).

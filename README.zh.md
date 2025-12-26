@@ -23,6 +23,7 @@ npm install
 2) 在 Source Control 视图标题栏点击图标按钮 **Push HEAD to Gerrit**，或在命令面板运行同名命令。
 3) 选择目标分支（当前分支、配置默认分支或自定义输入）。
 4) 确认弹窗 `git push <remote> HEAD:refs/for/<branch>`。
+5) 插件通过 VS Code 的 Git SCM（失败时回退 `git rev-parse`）解析仓库根目录，避免多仓库场景下推错路径。
 
 ## 设置
 - `gerritPush.defaultBranch`：推送到 `refs/for/<branch>` 的默认分支，留空则使用当前分支。
