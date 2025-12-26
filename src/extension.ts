@@ -71,9 +71,13 @@ async function pushToGerrit() {
 
   const pushRef = `HEAD:refs/for/${branch}`;
   outputChannel.show(true);
+
+  const remoteUrl = await getRemoteUrl(remote, cwd);
+  const targetLabel = remoteUrl ? `${remote} (${remoteUrl})` : remote;
+
   // 显式确认，避免误推
   const confirm = await vscode.window.showWarningMessage(
-    `Push ${pushRef} to ${remote}?`,
+    `Push ${pushRef} to ${targetLabel}?`,
     { modal: true },
     'Push'
   );
@@ -215,30 +219,29 @@ async function chooseBranch(currentBranch: string, defaultBranch: string): Promi
     });
   }
 
-  picks.push({
-    label: '$(edit) Enter another branch...',
-    description: 'Type any target branch/ref for refs/for/<branch>',
-    value: '__custom__'
-  });
+  // 用自定义 QuickPick，允许直接输入分支名后回车
+  const qp = vscode.window.createQuickPick<BranchPick>();
+  qp.title = '选择或输入目标分支 (refs/for/<branch>)';
+  qp.placeholder = '输入分支/引用，或选择下方推荐项';
+  qp.items = picks;
+  qp.value = defaultBranch || currentBranch;
 
-  const selection = await vscode.window.showQuickPick(picks, {
-    placeHolder: 'Select target branch for Gerrit refs/for/<branch>'
-  });
-
-  if (!selection) {
-    return undefined;
-  }
-
-  if (selection.value === '__custom__') {
-    const custom = await vscode.window.showInputBox({
-      prompt: 'Enter branch or ref to push to refs/for/<branch>',
-      placeHolder: currentBranch,
-      value: currentBranch
+  return await new Promise<string | undefined>((resolve) => {
+    qp.onDidAccept(() => {
+      const selected = qp.selectedItems[0];
+      const inputValue = qp.value.trim();
+      if (selected) {
+        resolve(selected.value);
+      } else if (inputValue.length > 0) {
+        resolve(inputValue);
+      } else {
+        resolve(undefined);
+      }
+      qp.hide();
     });
-    return custom?.trim() || undefined;
-  }
-
-  return selection.value;
+    qp.onDidHide(() => resolve(undefined));
+    qp.show();
+  });
 }
 
 async function chooseRemote(remoteFromConfig: string, cwd: string): Promise<string | undefined> {
@@ -280,6 +283,17 @@ async function listRemotes(cwd: string): Promise<string[]> {
     const message = err instanceof Error ? err.message : String(err);
     outputChannel.appendLine(`Failed to list remotes: ${message}`);
     return [];
+  }
+}
+
+async function getRemoteUrl(remote: string, cwd: string): Promise<string | undefined> {
+  try {
+    const result = await runGit(['remote', 'get-url', remote], cwd);
+    return result.stdout.trim() || undefined;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Failed to get remote url for ${remote}: ${message}`);
+    return undefined;
   }
 }
 

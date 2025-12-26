@@ -2,7 +2,7 @@
   "name": "gerrit-push-button",
   "displayName": "Gerrit Push Button",
   "description": "Adds a Source Control button to push HEAD to Gerrit refs/for/<branch> for review.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "local",
   "engines": {
     "vscode": "^1.84.0"
