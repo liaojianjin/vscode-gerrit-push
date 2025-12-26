@@ -9,7 +9,7 @@
     "vscode": "^1.84.0"
   },
   "categories": [
-    "Source Control"
+    "SCM Providers"
   ],
   "activationEvents": [
     "onStartupFinished",
