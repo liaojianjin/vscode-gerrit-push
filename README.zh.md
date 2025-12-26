@@ -41,5 +41,6 @@ npm run package
 生成的 `.vsix` 可分发给其他用户，在 VS Code 扩展面板右上角菜单选择 “Install from VSIX...” 安装。
 
 ## 元信息
+- 图标与图片由 Nano Banana Pro 生成（`images/icon.png`、`images/command-icon.png`）
 - 仓库：<https://github.com/liaojianjin/vscode-gerrit-push>
 - 许可证：MIT（见 `LICENSE`）

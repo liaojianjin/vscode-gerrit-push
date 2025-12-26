@@ -2,6 +2,7 @@
   "name": "gerrit-push-button",
   "displayName": "Gerrit Push Button",
   "description": "Adds a Source Control button to push HEAD to Gerrit refs/for/<branch> for review.",
+  "icon": "images/icon.png",
   "version": "0.0.2",
   "publisher": "local",
   "engines": {
@@ -31,7 +32,7 @@
       {
         "command": "gerritPush.pushToGerrit",
         "title": "Push HEAD to Gerrit",
-        "icon": "$(cloud-upload)",
+        "icon": "images/command-icon.png",
         "category": "Gerrit"
       }
     ],

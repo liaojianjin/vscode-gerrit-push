@@ -39,5 +39,6 @@ npm run package
 The generated `.vsix` can be shared and installed via VS Code’s Extensions panel “Install from VSIX...”.
 
 ## Metadata
+- Icons: generated with Nano Banana Pro (`images/icon.png`, `images/command-icon.png`)
 - Repository: https://github.com/liaojianjin/vscode-gerrit-push
 - License: MIT (see `LICENSE`)
