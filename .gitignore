@@ -1,0 +1,14 @@
+# Node / VS Code extension build outputs
+node_modules/
+out/
+*.vsix
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Misc
+.DS_Store

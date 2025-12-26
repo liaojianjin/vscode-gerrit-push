@@ -1,0 +1,70 @@
+{
+  "name": "gerrit-push-button",
+  "displayName": "Gerrit Push Button",
+  "description": "Adds a Source Control button to push HEAD to Gerrit refs/for/<branch> for review.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Source Control"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:gerritPush.pushToGerrit"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gerritPush.pushToGerrit",
+        "title": "Push HEAD to Gerrit",
+        "icon": "$(cloud-upload)",
+        "category": "Gerrit"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gerritPush.pushToGerrit",
+          "when": "scmProvider == git"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "gerritPush.pushToGerrit",
+          "group": "navigation@3",
+          "when": "scmProvider == git"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gerrit Push",
+      "properties": {
+        "gerritPush.defaultBranch": {
+          "type": "string",
+          "default": "",
+          "description": "Default branch to push to refs/for/<branch>. Leave empty to use the current branch."
+        },
+        "gerritPush.remote": {
+          "type": "string",
+          "default": "origin",
+          "description": "Git remote name to push to."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.25",
+    "@types/vscode": "^1.84.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
+  }
+}

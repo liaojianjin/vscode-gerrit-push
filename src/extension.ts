@@ -1,0 +1,243 @@
+import * as vscode from 'vscode';
+import { spawn } from 'child_process';
+
+type GitRunResult = {
+  stdout: string;
+  stderr: string;
+};
+
+type BranchPick = vscode.QuickPickItem & { value: string };
+type RemotePick = vscode.QuickPickItem & { value: string };
+
+// 输出 Gerrit push 相关日志
+const outputChannel = vscode.window.createOutputChannel('Gerrit Push');
+
+export function activate(context: vscode.ExtensionContext) {
+  const disposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async () => {
+    try {
+      await pushToGerrit();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      outputChannel.appendLine(`Error: ${message}`);
+      vscode.window.showErrorMessage(`Gerrit push failed: ${message}`);
+    }
+  });
+
+  context.subscriptions.push(disposable, outputChannel);
+}
+
+export function deactivate() {
+  // Nothing to clean up
+}
+
+async function pushToGerrit() {
+  // 选择工作区、确定分支和远端后执行 push
+  const workspaceFolder = await selectWorkspaceFolder();
+  if (!workspaceFolder) {
+    return;
+  }
+
+  const cwd = workspaceFolder.uri.fsPath;
+  const config = vscode.workspace.getConfiguration('gerritPush', workspaceFolder.uri);
+  const defaultBranch = config.get<string>('defaultBranch', '').trim();
+  const remoteFromConfig = config.get<string>('remote', 'origin').trim() || 'origin';
+
+  // 计算目标 refs/for/<branch>
+  const currentBranch = await getCurrentBranch(cwd);
+  const branch = await chooseBranch(currentBranch, defaultBranch);
+  if (!branch) {
+    return;
+  }
+
+  const remote = await chooseRemote(remoteFromConfig, cwd);
+  if (!remote) {
+    return;
+  }
+
+  const pushRef = `HEAD:refs/for/${branch}`;
+  outputChannel.show(true);
+  // 显式确认，避免误推
+  const confirm = await vscode.window.showWarningMessage(
+    `Push ${pushRef} to ${remote}?`,
+    { modal: true },
+    'Push'
+  );
+  if (confirm !== 'Push') {
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Pushing ${pushRef} to ${remote}`,
+      cancellable: false
+    },
+    async () => {
+      outputChannel.appendLine(`> git push ${remote} ${pushRef}`);
+      const result = await runGit(['push', remote, pushRef], cwd, true);
+      if (result.stdout.trim()) {
+        outputChannel.appendLine(result.stdout.trim());
+      }
+      if (result.stderr.trim()) {
+        outputChannel.appendLine(result.stderr.trim());
+      }
+    }
+  );
+
+  vscode.window.showInformationMessage(`Pushed HEAD to ${remote} refs/for/${branch}`);
+}
+
+async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage('No workspace folder open for Gerrit push.');
+    return undefined;
+  }
+
+  if (folders.length === 1) {
+    return folders[0];
+  }
+
+  const pickItems = folders.map((folder) => ({
+    label: folder.name,
+    description: folder.uri.fsPath,
+    folder
+  }));
+
+  const selection = await vscode.window.showQuickPick(pickItems, {
+    placeHolder: 'Select a workspace folder to push from'
+  });
+
+  return selection?.folder;
+}
+
+async function getCurrentBranch(cwd: string): Promise<string> {
+  const result = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  const branch = result.stdout.trim();
+  if (!branch) {
+    throw new Error('Unable to determine current branch.');
+  }
+  return branch;
+}
+
+async function chooseBranch(currentBranch: string, defaultBranch: string): Promise<string | undefined> {
+  const picks: BranchPick[] = [
+    {
+      label: `$(git-branch) ${currentBranch}`,
+      description: 'Use current branch',
+      value: currentBranch
+    }
+  ];
+
+  if (defaultBranch && defaultBranch !== currentBranch) {
+    picks.push({
+      label: `$(rocket) ${defaultBranch}`,
+      description: 'Use configured default branch',
+      value: defaultBranch
+    });
+  }
+
+  picks.push({
+    label: '$(edit) Enter another branch...',
+    description: 'Type any target branch/ref for refs/for/<branch>',
+    value: '__custom__'
+  });
+
+  const selection = await vscode.window.showQuickPick(picks, {
+    placeHolder: 'Select target branch for Gerrit refs/for/<branch>'
+  });
+
+  if (!selection) {
+    return undefined;
+  }
+
+  if (selection.value === '__custom__') {
+    const custom = await vscode.window.showInputBox({
+      prompt: 'Enter branch or ref to push to refs/for/<branch>',
+      placeHolder: currentBranch,
+      value: currentBranch
+    });
+    return custom?.trim() || undefined;
+  }
+
+  return selection.value;
+}
+
+async function chooseRemote(remoteFromConfig: string, cwd: string): Promise<string | undefined> {
+  const remoteList = await listRemotes(cwd);
+  if (remoteList.includes(remoteFromConfig)) {
+    return remoteFromConfig;
+  }
+
+  if (remoteList.length === 0) {
+    vscode.window.showErrorMessage('No git remotes found for Gerrit push.');
+    return undefined;
+  }
+
+  if (remoteList.length === 1) {
+    return remoteList[0];
+  }
+
+  const picks: RemotePick[] = remoteList.map((remote) => ({
+    label: remote,
+    description: remote === remoteFromConfig ? 'Configured remote' : '',
+    value: remote
+  }));
+
+  const selection = await vscode.window.showQuickPick(picks, {
+    placeHolder: 'Select remote to push to Gerrit'
+  });
+
+  return selection?.value;
+}
+
+async function listRemotes(cwd: string): Promise<string[]> {
+  try {
+    const remotes = await runGit(['remote'], cwd);
+    return remotes.stdout
+      .split(/\r?\n/)
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Failed to list remotes: ${message}`);
+    return [];
+  }
+}
+
+async function runGit(args: string[], cwd: string, streamOutput = false): Promise<GitRunResult> {
+  // 轻量封装 git 调用，可选择实时输出到 Output 窗口
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stdout += text;
+      if (streamOutput) {
+        outputChannel.append(text);
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stderr += text;
+      if (streamOutput) {
+        outputChannel.append(text);
+      }
+    });
+
+    child.on('error', (error) => {
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(stderr.trim() || `git exited with code ${code}`));
+      }
+    });
+  });
+}
