@@ -8,6 +8,8 @@ Adds a button in VS Code Source Control to push `HEAD` to `refs/for/<branch>` on
 - Defaults to the current branch; override with `gerritPush.defaultBranch`
 - Remote defaults to `origin`; override with `gerritPush.remote`
 
+![snipshot](images/snipshot.png)
+
 ## Setup & Debug
 1) Install dependencies:
 ```bash

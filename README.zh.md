@@ -10,6 +10,8 @@
 - 默认使用当前分支，可通过 `gerritPush.defaultBranch` 覆盖
 - 默认远端为 `origin`，可通过 `gerritPush.remote` 设定
 
+![snipshot](images/snipshot.png)
+
 ## 安装/调试
 1) 在该目录执行：
 ```bash
