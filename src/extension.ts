@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
-import * as path from 'path';
 
 type GitRunResult = {
   stdout: string;
@@ -9,15 +8,14 @@ type GitRunResult = {
 
 type BranchPick = vscode.QuickPickItem & { value: string };
 type RemotePick = vscode.QuickPickItem & { value: string };
-type RepoPick = vscode.QuickPickItem & { value: string };
 
 // 输出 Gerrit push 相关日志
 const outputChannel = vscode.window.createOutputChannel('Gerrit Push');
 
 export function activate(context: vscode.ExtensionContext) {
-  const disposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async () => {
+  const disposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async (sourceControl?: any) => {
     try {
-      await pushToGerrit();
+      await pushToGerrit(sourceControl);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       outputChannel.appendLine(`Error: ${message}`);
@@ -32,19 +30,24 @@ export function deactivate() {
   // Nothing to clean up
 }
 
-async function pushToGerrit() {
-  // 选择工作区、确定分支和远端后执行 push
-  const workspaceFolder = await selectWorkspaceFolder();
-  if (!workspaceFolder) {
-    return;
-  }
-
-  const workspacePath = workspaceFolder.uri.fsPath;
-  // 优先从 Git 扩展获取仓库根目录，兼容多仓库 Workspace
-  let gitRoot = await pickRepositoryRoot(workspacePath);
-  if (!gitRoot) {
-    // 兜底使用 git 自身解析
-    gitRoot = await resolveGitRoot(workspacePath);
+async function pushToGerrit(sourceControl?: any) {
+  // 首先尝试从源控制上下文获取仓库（用户从 SCM 面板点击按钮时）
+  let gitRoot: string | undefined;
+  
+  if (sourceControl?.rootUri?.fsPath) {
+    // SCM 面板按钮点击时，sourceControl 包含 rootUri 信息
+    gitRoot = sourceControl.rootUri.fsPath;
+    outputChannel.appendLine(`Using repository from SCM context: ${gitRoot}`);
+  } else {
+    // 降级方案：从活跃编辑器或第一个 workspace folder 推导仓库路径
+    const activeEditor = vscode.window.activeTextEditor;
+    let cwd = activeEditor?.document.uri.fsPath
+      ? vscode.workspace.getWorkspaceFolder(activeEditor.document.uri)?.uri.fsPath
+      : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    
+    if (cwd) {
+      gitRoot = await resolveGitRoot(cwd);
+    }
   }
 
   if (!gitRoot) {
@@ -53,7 +56,18 @@ async function pushToGerrit() {
   }
 
   const cwd = gitRoot;
-  const config = vscode.workspace.getConfiguration('gerritPush', workspaceFolder.uri);
+  
+  // 获取配置：优先使用活跃编辑器所在的 folder，否则使用第一个 folder
+  let configFolder = vscode.workspace.workspaceFolders?.[0];
+  const activeEditor = vscode.window.activeTextEditor;
+  if (activeEditor) {
+    const editorFolder = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+    if (editorFolder) {
+      configFolder = editorFolder;
+    }
+  }
+  
+  const config = vscode.workspace.getConfiguration('gerritPush', configFolder?.uri);
   const defaultBranch = config.get<string>('defaultBranch', '').trim();
   const remoteFromConfig = config.get<string>('remote', 'origin').trim() || 'origin';
 
@@ -117,80 +131,6 @@ async function resolveGitRoot(cwd: string): Promise<string | undefined> {
     outputChannel.appendLine(`Failed to resolve git root in ${cwd}: ${message}`);
     return undefined;
   }
-}
-
-async function pickRepositoryRoot(workspacePath: string): Promise<string | undefined> {
-  try {
-    const api = await getGitApi();
-    const repos = api?.repositories;
-    if (!repos || repos.length === 0) {
-      return undefined;
-    }
-
-    // 优先选择与工作区路径相关联的仓库（workspace 为父目录或子目录都可匹配）
-    const related = repos.find((repo: any) => {
-      const repoPath = repo.rootUri.fsPath;
-      return workspacePath.startsWith(repoPath) || repoPath.startsWith(workspacePath);
-    });
-    if (related) {
-      return related.rootUri.fsPath;
-    }
-
-    if (repos.length === 1) {
-      return repos[0].rootUri.fsPath;
-    }
-
-    const repoPicks: RepoPick[] = repos.map((repo: any) => ({
-      label: path.basename(repo.rootUri.fsPath),
-      description: repo.rootUri.fsPath,
-      value: repo.rootUri.fsPath
-    }));
-
-    const pick = await vscode.window.showQuickPick<RepoPick>(repoPicks, {
-      placeHolder: '选择要执行 Gerrit push 的 Git 仓库'
-    });
-    return pick?.value;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    outputChannel.appendLine(`Failed to get git repositories: ${message}`);
-    return undefined;
-  }
-}
-
-async function getGitApi(): Promise<any | undefined> {
-  const gitExtension = vscode.extensions.getExtension('vscode.git');
-  if (!gitExtension) {
-    return undefined;
-  }
-  const git = gitExtension.isActive ? gitExtension.exports : await gitExtension.activate();
-  if (!git || typeof git.getAPI !== 'function') {
-    return undefined;
-  }
-  return git.getAPI(1);
-}
-
-async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
-    vscode.window.showErrorMessage('No workspace folder open for Gerrit push.');
-    return undefined;
-  }
-
-  if (folders.length === 1) {
-    return folders[0];
-  }
-
-  const pickItems = folders.map((folder) => ({
-    label: folder.name,
-    description: folder.uri.fsPath,
-    folder
-  }));
-
-  const selection = await vscode.window.showQuickPick(pickItems, {
-    placeHolder: 'Select a workspace folder to push from'
-  });
-
-  return selection?.folder;
 }
 
 async function getCurrentBranch(cwd: string): Promise<string> {
