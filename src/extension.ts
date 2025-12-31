@@ -310,15 +310,27 @@ async function showQuickPickConfirmation(
 ): Promise<boolean> {
   type ConfirmPick = vscode.QuickPickItem & { value: boolean };
 
+  // 构建详细信息
+  const details: string[] = [
+    `Branch: ${branch}`,
+    `Remote: ${remote}`
+  ];
+  if (remoteUrl) {
+    const displayUrl = compactUrl ? extractRepoName(remoteUrl) : remoteUrl;
+    details.push(`URL: ${displayUrl}`);
+  }
+
   const picks: ConfirmPick[] = [
     {
       label: '$(check) Push',
-      description: `Push HEAD to refs/for/${branch}`,
+      description: 'Confirm and push',
+      detail: details.join(' • '),
       value: true
     },
     {
       label: '$(x) Cancel',
-      description: 'Cancel this push',
+      description: 'Discard changes',
+      detail: '',
       value: false
     }
   ];
@@ -326,17 +338,7 @@ async function showQuickPickConfirmation(
   const qp = vscode.window.createQuickPick<ConfirmPick>();
   qp.title = 'Confirm Gerrit Push';
   qp.items = picks;
-  
-  // 构建详细信息
-  const details: string[] = [
-    `Branch: refs/for/${branch}`,
-    `Remote: ${remote}`
-  ];
-  if (remoteUrl) {
-    const displayUrl = compactUrl ? extractRepoName(remoteUrl) : remoteUrl;
-    details.push(`Repo: ${displayUrl}`);
-  }
-  qp.placeholder = details.join(' • ');
+  qp.placeholder = 'Select to confirm or cancel';
 
   return await new Promise<boolean>((resolve) => {
     qp.onDidAccept(() => {
@@ -357,8 +359,8 @@ async function showMessageConfirmation(
 ): Promise<boolean> {
   const displayUrl = remoteUrl ? (compactUrl ? extractRepoName(remoteUrl) : remoteUrl) : '';
   const confirmMessage = displayUrl
-    ? `Push to:\n  Branch: refs/for/${branch}\n  Remote: ${remote}\n  Repo: ${displayUrl}`
-    : `Push to:\n  Branch: refs/for/${branch}\n  Remote: ${remote}`;
+    ? `Push to:\n  Branch: ${branch}\n  Remote: ${remote}\n  Repo: ${displayUrl}`
+    : `Push to:\n  Branch: ${branch}\n  Remote: ${remote}`;
   
   const confirm = await vscode.window.showWarningMessage(
     confirmMessage,
