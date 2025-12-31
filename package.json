@@ -63,6 +63,11 @@
           "type": "string",
           "default": "origin",
           "description": "Git remote name to push to."
+        },
+        "gerritPush.confirmBeforePush": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation dialog before pushing to Gerrit."
         }
       }
     }

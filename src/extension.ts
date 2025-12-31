@@ -70,6 +70,7 @@ async function pushToGerrit(sourceControl?: any) {
   const config = vscode.workspace.getConfiguration('gerritPush', configFolder?.uri);
   const defaultBranch = config.get<string>('defaultBranch', '').trim();
   const remoteFromConfig = config.get<string>('remote', 'origin').trim() || 'origin';
+  const confirmBeforePush = config.get<boolean>('confirmBeforePush', true);
 
   // 计算目标 refs/for/<branch>
   const currentBranch = await getCurrentBranch(cwd);
@@ -92,13 +93,15 @@ async function pushToGerrit(sourceControl?: any) {
   const targetLabel = remoteUrl ? `${remote} (${remoteUrl})` : remote;
 
   // 显式确认，避免误推
-  const confirm = await vscode.window.showWarningMessage(
-    `Push ${pushRef} to ${targetLabel}?`,
-    { modal: true },
-    'Push'
-  );
-  if (confirm !== 'Push') {
-    return;
+  if (confirmBeforePush) {
+    const confirm = await vscode.window.showWarningMessage(
+      `Push ${pushRef} to ${targetLabel}?`,
+      { modal: true },
+      'Push'
+    );
+    if (confirm !== 'Push') {
+      return;
+    }
   }
 
   await vscode.window.withProgress(
