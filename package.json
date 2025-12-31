@@ -68,6 +68,17 @@
           "type": "boolean",
           "default": true,
           "description": "Show a confirmation dialog before pushing to Gerrit."
+        },
+        "gerritPush.confirmationStyle": {
+          "type": "string",
+          "enum": ["quickpick", "message"],
+          "default": "quickpick",
+          "description": "Style of confirmation dialog: 'quickpick' for VS Code quick pick, 'message' for message box."
+        },
+        "gerritPush.compactRemoteUrl": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show only repository name instead of full remote URL in confirmation dialog."
         }
       }
     }

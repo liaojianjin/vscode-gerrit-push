@@ -71,6 +71,8 @@ async function pushToGerrit(sourceControl?: any) {
   const defaultBranch = config.get<string>('defaultBranch', '').trim();
   const remoteFromConfig = config.get<string>('remote', 'origin').trim() || 'origin';
   const confirmBeforePush = config.get<boolean>('confirmBeforePush', true);
+  const confirmationStyle = config.get<'quickpick' | 'message'>('confirmationStyle', 'quickpick');
+  const compactRemoteUrl = config.get<boolean>('compactRemoteUrl', false);
 
   // 计算目标 refs/for/<branch>
   const currentBranch = await getCurrentBranch(cwd);
@@ -90,16 +92,25 @@ async function pushToGerrit(sourceControl?: any) {
   outputChannel.show(true);
 
   const remoteUrl = await getRemoteUrl(remote, cwd);
-  const targetLabel = remoteUrl ? `${remote} (${remoteUrl})` : remote;
+
+  // 在输出窗口显示详细信息
+  outputChannel.appendLine('');
+  outputChannel.appendLine('═══════════════════════════════════════');
+  outputChannel.appendLine(`Push Details:`);
+  outputChannel.appendLine(`  Current Branch: ${currentBranch}`);
+  outputChannel.appendLine(`  Target Branch:  ${branch}`);
+  outputChannel.appendLine(`  Remote Name:    ${remote}`);
+  if (remoteUrl) {
+    outputChannel.appendLine(`  Remote URL:     ${remoteUrl}`);
+  }
+  outputChannel.appendLine(`  Push Ref:       ${pushRef}`);
+  outputChannel.appendLine('═══════════════════════════════════════');
+  outputChannel.appendLine('');
 
   // 显式确认，避免误推
   if (confirmBeforePush) {
-    const confirm = await vscode.window.showWarningMessage(
-      `Push ${pushRef} to ${targetLabel}?`,
-      { modal: true },
-      'Push'
-    );
-    if (confirm !== 'Push') {
+    const confirmed = await showPushConfirmation(branch, remote, remoteUrl, confirmationStyle, compactRemoteUrl);
+    if (!confirmed) {
       return;
     }
   }
@@ -275,6 +286,99 @@ async function getRemoteUrl(remote: string, cwd: string): Promise<string | undef
     outputChannel.appendLine(`Failed to get remote url for ${remote}: ${message}`);
     return undefined;
   }
+}
+
+async function showPushConfirmation(
+  branch: string,
+  remote: string,
+  remoteUrl: string | undefined,
+  style: 'quickpick' | 'message',
+  compactUrl: boolean
+): Promise<boolean> {
+  if (style === 'message') {
+    return showMessageConfirmation(branch, remote, remoteUrl, compactUrl);
+  } else {
+    return showQuickPickConfirmation(branch, remote, remoteUrl, compactUrl);
+  }
+}
+
+async function showQuickPickConfirmation(
+  branch: string,
+  remote: string,
+  remoteUrl: string | undefined,
+  compactUrl: boolean
+): Promise<boolean> {
+  type ConfirmPick = vscode.QuickPickItem & { value: boolean };
+
+  const picks: ConfirmPick[] = [
+    {
+      label: '$(check) Push',
+      description: `Push HEAD to refs/for/${branch}`,
+      value: true
+    },
+    {
+      label: '$(x) Cancel',
+      description: 'Cancel this push',
+      value: false
+    }
+  ];
+
+  const qp = vscode.window.createQuickPick<ConfirmPick>();
+  qp.title = 'Confirm Gerrit Push';
+  qp.items = picks;
+  
+  // 构建详细信息
+  const details: string[] = [
+    `Branch: refs/for/${branch}`,
+    `Remote: ${remote}`
+  ];
+  if (remoteUrl) {
+    const displayUrl = compactUrl ? extractRepoName(remoteUrl) : remoteUrl;
+    details.push(`Repo: ${displayUrl}`);
+  }
+  qp.placeholder = details.join(' • ');
+
+  return await new Promise<boolean>((resolve) => {
+    qp.onDidAccept(() => {
+      const selected = qp.selectedItems[0];
+      resolve(selected?.value ?? false);
+      qp.hide();
+    });
+    qp.onDidHide(() => resolve(false));
+    qp.show();
+  });
+}
+
+async function showMessageConfirmation(
+  branch: string,
+  remote: string,
+  remoteUrl: string | undefined,
+  compactUrl: boolean
+): Promise<boolean> {
+  const displayUrl = remoteUrl ? (compactUrl ? extractRepoName(remoteUrl) : remoteUrl) : '';
+  const confirmMessage = displayUrl
+    ? `Push to:\n  Branch: refs/for/${branch}\n  Remote: ${remote}\n  Repo: ${displayUrl}`
+    : `Push to:\n  Branch: refs/for/${branch}\n  Remote: ${remote}`;
+  
+  const confirm = await vscode.window.showWarningMessage(
+    confirmMessage,
+    { modal: true },
+    'Push'
+  );
+  return confirm === 'Push';
+}
+
+function extractRepoName(url: string): string {
+  // 移除 .git 后缀
+  url = url.replace(/\.git\/?$/, '');
+  
+  // 获取最后一个 / 或 : 之后的部分
+  const match = url.match(/[/:]+([^/:]+)$/);
+  if (match) {
+    return match[1];
+  }
+  
+  return url;
 }
 
 async function runGit(args: string[], cwd: string, streamOutput = false): Promise<GitRunResult> {
