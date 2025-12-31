@@ -9,8 +9,82 @@ type GitRunResult = {
 type BranchPick = vscode.QuickPickItem & { value: string };
 type RemotePick = vscode.QuickPickItem & { value: string };
 
+// 国际化文本
+const i18n = {
+  en: {
+    outputChannelName: 'Gerrit Push',
+    noGitRepo: 'No git repository found. Please switch to a directory with .git and try again.',
+    noGitRemote: 'No git remotes found for Gerrit push.',
+    selectBranchTitle: 'Select or enter target branch (refs/for/<branch>)',
+    selectBranchPlaceholder: 'Enter branch/ref or select from recommendations below',
+    selectRemotePlaceholder: 'Select remote to push to Gerrit',
+    confirmTitle: 'Confirm Gerrit Push',
+    confirmPlaceholder: 'Select to confirm or cancel',
+    pushButton: '$(check) Push',
+    pushButtonMsg: 'Push',
+    pushButtonDesc: 'Confirm and push',
+    cancelButton: '$(x) Cancel',
+    cancelButtonMsg: 'Cancel',
+    cancelButtonDesc: 'Discard changes',
+    pushConfirmMessage: (branch: string, remote: string, repo?: string) => 
+      repo ? `Push to:\n  Branch: ${branch}\n  Remote: ${remote}\n  Repo: ${repo}`
+            : `Push to:\n  Branch: ${branch}\n  Remote: ${remote}`,
+    currentBranch: 'Use current branch',
+    defaultBranch: 'Use configured default branch',
+    remoteBranch: 'Remote branch',
+    pushDetailsTitle: 'Push Details',
+    currentBranchLabel: 'Current Branch',
+    targetBranchLabel: 'Target Branch',
+    remoteNameLabel: 'Remote Name',
+    remoteUrlLabel: 'Remote URL',
+    pushRefLabel: 'Push Ref',
+    pushingTitle: (ref: string, remote: string) => `Pushing ${ref} to ${remote}`,
+    pushSuccessMessage: (remote: string, branch: string) => `Pushed HEAD to ${remote} refs/for/${branch}`,
+  },
+  zh: {
+    outputChannelName: 'Gerrit Push',
+    noGitRepo: '未找到可用的 Git 仓库，请切换到包含 .git 的目录后重试。',
+    noGitRemote: '未找到 Git Remote，无法执行 Gerrit push。',
+    selectBranchTitle: '选择或输入目标分支 (refs/for/<branch>)',
+    selectBranchPlaceholder: '输入分支/引用，或选择下方推荐项',
+    selectRemotePlaceholder: '选择要推送到的 Remote',
+    confirmTitle: '确认 Gerrit Push',
+    confirmPlaceholder: '选择确认或取消',
+    pushButton: '$(check) Push',
+    pushButtonMsg: 'Push',
+    pushButtonDesc: '确认并推送',
+    cancelButton: '$(x) Cancel',
+    cancelButtonMsg: '取消',
+    cancelButtonDesc: '取消此次推送',
+    pushConfirmMessage: (branch: string, remote: string, repo?: string) => 
+      repo ? `推送到:\n  分支: ${branch}\n  Remote: ${remote}\n  Repo: ${repo}`
+            : `推送到:\n  分支: ${branch}\n  Remote: ${remote}`,
+    currentBranch: '使用当前分支',
+    defaultBranch: '使用配置的默认分支',
+    remoteBranch: 'Remote 分支',
+    pushDetailsTitle: 'Push 详情',
+    currentBranchLabel: '当前分支',
+    targetBranchLabel: '目标分支',
+    remoteNameLabel: 'Remote 名称',
+    remoteUrlLabel: 'Remote URL',
+    pushRefLabel: 'Push Ref',
+    pushingTitle: (ref: string, remote: string) => `推送 ${ref} 到 ${remote}`,
+    pushSuccessMessage: (remote: string, branch: string) => `已推送 HEAD 到 ${remote} refs/for/${branch}`,
+  }
+};
+
+function getLanguage(): 'en' | 'zh' {
+  const language = vscode.env.language;
+  return language.startsWith('zh') ? 'zh' : 'en';
+}
+
+function getText(key: string): any {
+  const lang = getLanguage();
+  return (i18n[lang as keyof typeof i18n] as any)[key];
+}
+
 // 输出 Gerrit push 相关日志
-const outputChannel = vscode.window.createOutputChannel('Gerrit Push');
+const outputChannel = vscode.window.createOutputChannel(getText('outputChannelName') as string);
 
 export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async (sourceControl?: any) => {
@@ -51,7 +125,7 @@ async function pushToGerrit(sourceControl?: any) {
   }
 
   if (!gitRoot) {
-    vscode.window.showErrorMessage('未找到可用的 Git 仓库，请切换到包含 .git 的目录后重试。');
+    vscode.window.showErrorMessage(getText('noGitRepo'));
     return;
   }
 
@@ -190,8 +264,8 @@ async function chooseBranch(currentBranch: string, defaultBranch: string, remote
 
   // 用自定义 QuickPick，允许直接输入分支名后回车
   const qp = vscode.window.createQuickPick<BranchPick>();
-  qp.title = '选择或输入目标分支 (refs/for/<branch>)';
-  qp.placeholder = '输入分支/引用，或选择下方推荐项';
+  qp.title = getText('selectBranchTitle');
+  qp.placeholder = getText('selectBranchPlaceholder');
   qp.items = picks;
   qp.value = defaultBranch || currentBranch;
 
@@ -242,7 +316,7 @@ async function chooseRemote(remoteFromConfig: string, cwd: string): Promise<stri
   }
 
   if (remoteList.length === 0) {
-    vscode.window.showErrorMessage('No git remotes found for Gerrit push.');
+    vscode.window.showErrorMessage(getText('noGitRemote'));
     return undefined;
   }
 
@@ -257,7 +331,7 @@ async function chooseRemote(remoteFromConfig: string, cwd: string): Promise<stri
   }));
 
   const selection = await vscode.window.showQuickPick(picks, {
-    placeHolder: 'Select remote to push to Gerrit'
+    placeHolder: getText('selectRemotePlaceholder')
   });
 
   return selection?.value;
@@ -336,9 +410,9 @@ async function showQuickPickConfirmation(
   ];
 
   const qp = vscode.window.createQuickPick<ConfirmPick>();
-  qp.title = 'Confirm Gerrit Push';
+  qp.title = getText('confirmTitle');
   qp.items = picks;
-  qp.placeholder = 'Select to confirm or cancel';
+  qp.placeholder = getText('confirmPlaceholder');
 
   return await new Promise<boolean>((resolve) => {
     qp.onDidAccept(() => {
@@ -358,16 +432,14 @@ async function showMessageConfirmation(
   compactUrl: boolean
 ): Promise<boolean> {
   const displayUrl = remoteUrl ? (compactUrl ? extractRepoName(remoteUrl) : remoteUrl) : '';
-  const confirmMessage = displayUrl
-    ? `Push to:\n  Branch: ${branch}\n  Remote: ${remote}\n  Repo: ${displayUrl}`
-    : `Push to:\n  Branch: ${branch}\n  Remote: ${remote}`;
+  const confirmMessage = getText('pushConfirmMessage')(branch, remote, displayUrl || undefined);
   
   const confirm = await vscode.window.showWarningMessage(
     confirmMessage,
     { modal: true },
-    'Push'
+    getText('pushButtonMsg')
   );
-  return confirm === 'Push';
+  return confirm === getText('pushButtonMsg');
 }
 
 function extractRepoName(url: string): string {
