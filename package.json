@@ -12,8 +12,7 @@
     "SCM Providers"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:gerritPush.pushToGerrit"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "scripts": {

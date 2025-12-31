@@ -73,13 +73,15 @@ async function pushToGerrit(sourceControl?: any) {
 
   // 计算目标 refs/for/<branch>
   const currentBranch = await getCurrentBranch(cwd);
-  const branch = await chooseBranch(currentBranch, defaultBranch);
-  if (!branch) {
-    return;
-  }
-
+  
+  // 先选择 remote，以便获取该 remote 的分支列表
   const remote = await chooseRemote(remoteFromConfig, cwd);
   if (!remote) {
+    return;
+  }
+  
+  const branch = await chooseBranch(currentBranch, defaultBranch, remote, cwd);
+  if (!branch) {
     return;
   }
 
@@ -142,7 +144,7 @@ async function getCurrentBranch(cwd: string): Promise<string> {
   return branch;
 }
 
-async function chooseBranch(currentBranch: string, defaultBranch: string): Promise<string | undefined> {
+async function chooseBranch(currentBranch: string, defaultBranch: string, remote: string, cwd: string): Promise<string | undefined> {
   const picks: BranchPick[] = [
     {
       label: `$(git-branch) ${currentBranch}`,
@@ -157,6 +159,19 @@ async function chooseBranch(currentBranch: string, defaultBranch: string): Promi
       description: 'Use configured default branch',
       value: defaultBranch
     });
+  }
+
+  // 获取远程分支列表
+  const remoteBranches = await listRemoteBranches(remote, cwd);
+  for (const branch of remoteBranches) {
+    // 避免重复添加已有的分支
+    if (branch !== currentBranch && branch !== defaultBranch) {
+      picks.push({
+        label: `$(cloud) ${branch}`,
+        description: `Remote branch: ${remote}/${branch}`,
+        value: branch
+      });
+    }
   }
 
   // 用自定义 QuickPick，允许直接输入分支名后回车
@@ -182,6 +197,28 @@ async function chooseBranch(currentBranch: string, defaultBranch: string): Promi
     qp.onDidHide(() => resolve(undefined));
     qp.show();
   });
+}
+
+async function listRemoteBranches(remote: string, cwd: string): Promise<string[]> {
+  try {
+    const result = await runGit(['branch', '-r'], cwd);
+    const lines = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    
+    const prefix = `${remote}/`;
+    const branches = lines
+      .filter((line) => line.startsWith(prefix))
+      .map((line) => line.substring(prefix.length))
+      .filter((branch) => !branch.startsWith('HEAD')); // 过滤掉 HEAD 指针（包括 HEAD -> ... 格式）
+    
+    return branches;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Failed to list remote branches for ${remote}: ${message}`);
+    return [];
+  }
 }
 
 async function chooseRemote(remoteFromConfig: string, cwd: string): Promise<string | undefined> {
