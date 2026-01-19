@@ -26,9 +26,20 @@ const i18n = {
     cancelButton: '$(x) Cancel',
     cancelButtonMsg: 'Cancel',
     cancelButtonDesc: 'Discard changes',
-    pushConfirmMessage: (branch: string, remote: string, repo?: string) => 
-      repo ? `Push to:\n  Branch: ${branch}\n  Remote: ${remote}\n  Repo: ${repo}`
-            : `Push to:\n  Branch: ${branch}\n  Remote: ${remote}`,
+    pushConfirmMessage: (branch: string, remote: string, repo?: string, reviewers?: string) => {
+      const lines = [
+        `Push to:`,
+        `  Branch: ${branch}`,
+        `  Remote: ${remote}`
+      ];
+      if (repo) {
+        lines.push(`  Repo: ${repo}`);
+      }
+      if (reviewers) {
+        lines.push(`  Reviewers: ${reviewers}`);
+      }
+      return lines.join('\n');
+    },
     currentBranch: 'Use current branch',
     defaultBranch: 'Use configured default branch',
     remoteBranch: 'Remote branch',
@@ -38,8 +49,16 @@ const i18n = {
     remoteNameLabel: 'Remote Name',
     remoteUrlLabel: 'Remote URL',
     pushRefLabel: 'Push Ref',
+    reviewersLabel: 'Reviewers',
     pushingTitle: (ref: string, remote: string) => `Pushing ${ref} to ${remote}`,
     pushSuccessMessage: (remote: string, branch: string) => `Pushed HEAD to ${remote} refs/for/${branch}`,
+    reviewerInputTitle: 'Add reviewers',
+    reviewerInputPlaceholder: 'Enter reviewers (comma or space separated, optional)',
+    reviewerSelectTitle: 'Select reviewers',
+    reviewerSelectPlaceholder: 'Pick presets or type to add reviewers',
+    reviewerPresetDescription: 'Preset reviewer',
+    reviewerNoneLabel: 'No reviewers',
+    reviewerNoneDescription: 'Push without reviewers'
   },
   zh: {
     outputChannelName: 'Gerrit Push',
@@ -56,9 +75,20 @@ const i18n = {
     cancelButton: '$(x) Cancel',
     cancelButtonMsg: '取消',
     cancelButtonDesc: '取消此次推送',
-    pushConfirmMessage: (branch: string, remote: string, repo?: string) => 
-      repo ? `推送到:\n  分支: ${branch}\n  Remote: ${remote}\n  Repo: ${repo}`
-            : `推送到:\n  分支: ${branch}\n  Remote: ${remote}`,
+    pushConfirmMessage: (branch: string, remote: string, repo?: string, reviewers?: string) => {
+      const lines = [
+        `推送到:`,
+        `  分支: ${branch}`,
+        `  Remote: ${remote}`
+      ];
+      if (repo) {
+        lines.push(`  Repo: ${repo}`);
+      }
+      if (reviewers) {
+        lines.push(`  Reviewer: ${reviewers}`);
+      }
+      return lines.join('\n');
+    },
     currentBranch: '使用当前分支',
     defaultBranch: '使用配置的默认分支',
     remoteBranch: 'Remote 分支',
@@ -68,8 +98,16 @@ const i18n = {
     remoteNameLabel: 'Remote 名称',
     remoteUrlLabel: 'Remote URL',
     pushRefLabel: 'Push Ref',
+    reviewersLabel: 'Reviewer',
     pushingTitle: (ref: string, remote: string) => `推送 ${ref} 到 ${remote}`,
     pushSuccessMessage: (remote: string, branch: string) => `已推送 HEAD 到 ${remote} refs/for/${branch}`,
+    reviewerInputTitle: '添加 Reviewer',
+    reviewerInputPlaceholder: '输入 reviewer（逗号或空格分隔，可留空）',
+    reviewerSelectTitle: '选择 Reviewer',
+    reviewerSelectPlaceholder: '选择预设或直接输入 reviewer',
+    reviewerPresetDescription: '预设 reviewer',
+    reviewerNoneLabel: '不添加 reviewer',
+    reviewerNoneDescription: '不指定 reviewer 推送'
   }
 };
 
@@ -147,6 +185,10 @@ async function pushToGerrit(sourceControl?: any) {
   const confirmBeforePush = config.get<boolean>('confirmBeforePush', true);
   const confirmationStyle = config.get<'quickpick' | 'message'>('confirmationStyle', 'quickpick');
   const compactRemoteUrl = config.get<boolean>('compactRemoteUrl', false);
+  const reviewerPresets = config.get<string[]>('reviewerPresets', [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const enableReviewers = config.get<boolean>('enableReviewers', false);
 
   // 计算目标 refs/for/<branch>
   const currentBranch = await getCurrentBranch(cwd);
@@ -162,7 +204,15 @@ async function pushToGerrit(sourceControl?: any) {
     return;
   }
 
-  const pushRef = `HEAD:refs/for/${branch}`;
+  let reviewers: string[] = [];
+  if (enableReviewers) {
+    const reviewerInput = await promptReviewers(reviewerPresets);
+    if (reviewerInput === undefined) {
+      return;
+    }
+    reviewers = normalizeReviewers(reviewerInput);
+  }
+  const pushRef = buildPushRef(branch, reviewers);
   outputChannel.show(true);
 
   const remoteUrl = await getRemoteUrl(remote, cwd);
@@ -178,12 +228,22 @@ async function pushToGerrit(sourceControl?: any) {
     outputChannel.appendLine(`  Remote URL:     ${remoteUrl}`);
   }
   outputChannel.appendLine(`  Push Ref:       ${pushRef}`);
+  if (reviewers.length > 0) {
+    outputChannel.appendLine(`  Reviewers:      ${formatReviewers(reviewers)}`);
+  }
   outputChannel.appendLine('═══════════════════════════════════════');
   outputChannel.appendLine('');
 
   // 显式确认，避免误推
   if (confirmBeforePush) {
-    const confirmed = await showPushConfirmation(branch, remote, remoteUrl, confirmationStyle, compactRemoteUrl);
+    const confirmed = await showPushConfirmation(
+      branch,
+      remote,
+      remoteUrl,
+      reviewers,
+      confirmationStyle,
+      compactRemoteUrl
+    );
     if (!confirmed) {
       return;
     }
@@ -366,13 +426,14 @@ async function showPushConfirmation(
   branch: string,
   remote: string,
   remoteUrl: string | undefined,
+  reviewers: string[],
   style: 'quickpick' | 'message',
   compactUrl: boolean
 ): Promise<boolean> {
   if (style === 'message') {
-    return showMessageConfirmation(branch, remote, remoteUrl, compactUrl);
+    return showMessageConfirmation(branch, remote, remoteUrl, reviewers, compactUrl);
   } else {
-    return showQuickPickConfirmation(branch, remote, remoteUrl, compactUrl);
+    return showQuickPickConfirmation(branch, remote, remoteUrl, reviewers, compactUrl);
   }
 }
 
@@ -380,6 +441,7 @@ async function showQuickPickConfirmation(
   branch: string,
   remote: string,
   remoteUrl: string | undefined,
+  reviewers: string[],
   compactUrl: boolean
 ): Promise<boolean> {
   type ConfirmPick = vscode.QuickPickItem & { value: boolean };
@@ -392,6 +454,9 @@ async function showQuickPickConfirmation(
   if (remoteUrl) {
     const displayUrl = compactUrl ? extractRepoName(remoteUrl) : remoteUrl;
     details.push(`URL: ${displayUrl}`);
+  }
+  if (reviewers.length > 0) {
+    details.push(`Reviewers: ${formatReviewers(reviewers)}`);
   }
 
   const picks: ConfirmPick[] = [
@@ -429,10 +494,12 @@ async function showMessageConfirmation(
   branch: string,
   remote: string,
   remoteUrl: string | undefined,
+  reviewers: string[],
   compactUrl: boolean
 ): Promise<boolean> {
   const displayUrl = remoteUrl ? (compactUrl ? extractRepoName(remoteUrl) : remoteUrl) : '';
-  const confirmMessage = getText('pushConfirmMessage')(branch, remote, displayUrl || undefined);
+  const reviewerText = reviewers.length > 0 ? formatReviewers(reviewers) : undefined;
+  const confirmMessage = getText('pushConfirmMessage')(branch, remote, displayUrl || undefined, reviewerText);
   
   const confirm = await vscode.window.showWarningMessage(
     confirmMessage,
@@ -453,6 +520,74 @@ function extractRepoName(url: string): string {
   }
   
   return url;
+}
+
+function normalizeReviewers(input: string): string[] {
+  return input
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => item.replace(/^r=/i, ''));
+}
+
+function formatReviewers(reviewers: string[]): string {
+  return reviewers.join(', ');
+}
+
+function buildPushRef(branch: string, reviewers: string[]): string {
+  if (reviewers.length === 0) {
+    return `HEAD:refs/for/${branch}`;
+  }
+  const reviewerParams = reviewers.map((reviewer) => `r=${reviewer}`).join(',');
+  return `HEAD:refs/for/${branch}%${reviewerParams}`;
+}
+
+async function promptReviewers(presets: string[]): Promise<string | undefined> {
+  if (presets.length === 0) {
+    return vscode.window.showInputBox({
+      title: getText('reviewerInputTitle'),
+      prompt: getText('reviewerInputPlaceholder'),
+      placeHolder: getText('reviewerInputPlaceholder')
+    });
+  }
+
+  type ReviewerPick = vscode.QuickPickItem & { value: string };
+  const picks: ReviewerPick[] = [
+    {
+      label: getText('reviewerNoneLabel'),
+      description: getText('reviewerNoneDescription'),
+      value: '__none__'
+    },
+    ...presets.map((reviewer) => ({
+      label: reviewer,
+      description: getText('reviewerPresetDescription'),
+      value: reviewer
+    }))
+  ];
+
+  const qp = vscode.window.createQuickPick<ReviewerPick>();
+  qp.title = getText('reviewerSelectTitle');
+  qp.placeholder = getText('reviewerSelectPlaceholder');
+  qp.items = picks;
+  qp.canSelectMany = true;
+
+  return await new Promise<string | undefined>((resolve) => {
+    qp.onDidAccept(() => {
+      const selected = qp.selectedItems.map((item) => item.value);
+      const inputValue = qp.value.trim();
+      const inputReviewers = inputValue.length > 0 ? normalizeReviewers(inputValue) : [];
+      if (selected.includes('__none__')) {
+        resolve('');
+        qp.hide();
+        return;
+      }
+      const combined = Array.from(new Set([...selected, ...inputReviewers]));
+      resolve(combined.join(','));
+      qp.hide();
+    });
+    qp.onDidHide(() => resolve(undefined));
+    qp.show();
+  });
 }
 
 async function runGit(args: string[], cwd: string, streamOutput = false): Promise<GitRunResult> {

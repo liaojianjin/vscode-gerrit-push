@@ -7,6 +7,7 @@
 ## 功能
 - Source Control 标题栏按钮 + 命令面板命令：**Gerrit: Push HEAD to Gerrit**
 - 执行 `git push <remote> HEAD:refs/for/<branch>`，提供分支选择器
+- 可选输入 reviewer，推送为 `refs/for/<branch>%r=<reviewer>`
 - 默认使用当前分支，可通过 `gerritPush.defaultBranch` 覆盖
 - 默认远端为 `origin`，可通过 `gerritPush.remote` 设定
 
@@ -24,12 +25,15 @@ npm install
 1) 打开一个 Git 工作区。
 2) 在 Source Control 视图标题栏点击图标按钮 **Push HEAD to Gerrit**，或在命令面板运行同名命令。
 3) 选择目标分支（当前分支、配置默认分支或自定义输入）。
-4) 确认弹窗 `git push <remote> HEAD:refs/for/<branch>`。
-5) 插件通过 VS Code 的 Git SCM（失败时回退 `git rev-parse`）解析仓库根目录，避免多仓库场景下推错路径。
+4) 开启后可选择预设 reviewer 并/或输入 reviewer（逗号或空格分隔）。
+5) 确认弹窗 `git push <remote> HEAD:refs/for/<branch>`。
+6) 插件通过 VS Code 的 Git SCM（失败时回退 `git rev-parse`）解析仓库根目录，避免多仓库场景下推错路径。
 
 ## 设置
 - `gerritPush.defaultBranch`：推送到 `refs/for/<branch>` 的默认分支，留空则使用当前分支。
 - `gerritPush.remote`：推送使用的 Git 远端名，默认 `origin`。
+- `gerritPush.enableReviewers`：开启 reviewer 选择。
+- `gerritPush.reviewerPresets`：reviewer 预设列表，显示在 reviewer 选择器中。
 
 ## 打包分发
 1) 安装依赖（首次或更新时）：

@@ -3,7 +3,7 @@
   "displayName": "Gerrit Push Button",
   "description": "Adds a Source Control button to push HEAD to Gerrit refs/for/<branch> for review.",
   "icon": "images/icon.png",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "LiaoJianjin",
   "engines": {
     "vscode": "^1.84.0"
@@ -75,10 +75,23 @@
           "default": "quickpick",
           "description": "Style of confirmation dialog: 'quickpick' for VS Code quick pick, 'message' for message box."
         },
+        "gerritPush.enableReviewers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable reviewer selection before pushing to Gerrit."
+        },
         "gerritPush.compactRemoteUrl": {
           "type": "boolean",
           "default": false,
           "description": "Show only repository name instead of full remote URL in confirmation dialog."
+        },
+        "gerritPush.reviewerPresets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Preset reviewers shown in the reviewer picker."
         }
       }
     }
