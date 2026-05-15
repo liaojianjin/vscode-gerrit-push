@@ -42,6 +42,7 @@ const i18n = {
     },
     currentBranch: 'Use current branch',
     defaultBranch: 'Use configured default branch',
+    localBranch: 'Local branch',
     remoteBranch: 'Remote branch',
     pushDetailsTitle: 'Push Details',
     currentBranchLabel: 'Current Branch',
@@ -91,6 +92,7 @@ const i18n = {
     },
     currentBranch: '使用当前分支',
     defaultBranch: '使用配置的默认分支',
+    localBranch: '本地分支',
     remoteBranch: 'Remote 分支',
     pushDetailsTitle: 'Push 详情',
     currentBranchLabel: '当前分支',
@@ -293,6 +295,7 @@ async function getCurrentBranch(cwd: string): Promise<string> {
 }
 
 async function chooseBranch(currentBranch: string, defaultBranch: string, remote: string, cwd: string): Promise<string | undefined> {
+  const addedBranches = new Set<string>();
   const picks: BranchPick[] = [
     {
       label: `$(git-branch) ${currentBranch}`,
@@ -300,6 +303,7 @@ async function chooseBranch(currentBranch: string, defaultBranch: string, remote
       value: currentBranch
     }
   ];
+  addedBranches.add(currentBranch);
 
   if (defaultBranch && defaultBranch !== currentBranch) {
     picks.push({
@@ -307,18 +311,31 @@ async function chooseBranch(currentBranch: string, defaultBranch: string, remote
       description: 'Use configured default branch',
       value: defaultBranch
     });
+    addedBranches.add(defaultBranch);
   }
 
-  // 获取远程分支列表
+  // 优先展示本地分支，再展示远程分支
+  const localBranches = await listLocalBranches(cwd);
+  for (const branch of localBranches) {
+    if (!addedBranches.has(branch)) {
+      picks.push({
+        label: `$(git-branch) ${branch}`,
+        description: getText('localBranch'),
+        value: branch
+      });
+      addedBranches.add(branch);
+    }
+  }
+
   const remoteBranches = await listRemoteBranches(remote, cwd);
   for (const branch of remoteBranches) {
-    // 避免重复添加已有的分支
-    if (branch !== currentBranch && branch !== defaultBranch) {
+    if (!addedBranches.has(branch)) {
       picks.push({
         label: `$(cloud) ${branch}`,
         description: `Remote branch: ${remote}/${branch}`,
         value: branch
       });
+      addedBranches.add(branch);
     }
   }
 
@@ -345,6 +362,20 @@ async function chooseBranch(currentBranch: string, defaultBranch: string, remote
     qp.onDidHide(() => resolve(undefined));
     qp.show();
   });
+}
+
+async function listLocalBranches(cwd: string): Promise<string[]> {
+  try {
+    const result = await runGit(['branch', '--format=%(refname:short)'], cwd);
+    return result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Failed to list local branches: ${message}`);
+    return [];
+  }
 }
 
 async function listRemoteBranches(remote: string, cwd: string): Promise<string[]> {
