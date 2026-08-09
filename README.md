@@ -1,6 +1,6 @@
 # Gerrit Push Button
 
-Adds a button in VS Code Source Control to push `HEAD` to `refs/for/<branch>` on your Gerrit remote for review.
+Adds Gerrit workflow actions to VS Code Source Control: push `HEAD` to `refs/for/<branch>` for review or apply a Gerrit patch to the current branch.
 
 ## Features
 - Source Control title bar button and Command Palette command: **Gerrit: Push HEAD to Gerrit**
@@ -8,6 +8,7 @@ Adds a button in VS Code Source Control to push `HEAD` to `refs/for/<branch>` on
 - Optional reviewer prompt to push as `refs/for/<branch>%r=<reviewer>`
 - Defaults to the current branch; override with `gerritPush.defaultBranch`
 - Remote defaults to `origin`; override with `gerritPush.remote`
+- Paste a Gerrit Checkout command and either align or cherry-pick the patch onto the current branch
 
 ![snipshot](images/snipshot.png)
 
@@ -26,6 +27,16 @@ npm install
 4) If enabled, select preset reviewers and/or enter reviewers (comma or space separated) for Gerrit.
 5) Confirm the prompt `git push <remote> HEAD:refs/for/<branch>`.
 6) The extension resolves the Git root via VS Code’s Git SCM (falls back to `git rev-parse`), so multi-repo workspaces push from the right repo.
+
+### Apply a Gerrit patch
+
+1) Copy a Checkout command from Gerrit's Download menu, such as `git fetch <url> refs/changes/... && git checkout FETCH_HEAD`.
+2) Click **Apply Gerrit Patch** in the Source Control title bar, or run `Gerrit: Apply Gerrit Patch` from the Command Palette. A valid command on the clipboard is filled in automatically.
+3) Choose how to apply it:
+   - **Align current branch**: fetch, then run `git checkout -m -B <current-branch> FETCH_HEAD`.
+   - **Cherry-pick onto current branch**: fetch, then run `git cherry-pick FETCH_HEAD`.
+
+The extension only parses the fetch address and `refs/...` value and passes them directly to Git. Pasted input is never executed by a shell.
 
 ## Settings
 - `gerritPush.defaultBranch`: default branch for `refs/for/<branch>` (empty = current branch).

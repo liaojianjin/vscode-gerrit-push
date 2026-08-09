@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { spawn } from 'child_process';
+import { buildPatchApplyArgs, GerritPatchAction, parseGerritFetchCommand } from './gerritPatch';
 
 type GitRunResult = {
   stdout: string;
@@ -8,6 +9,7 @@ type GitRunResult = {
 
 type BranchPick = vscode.QuickPickItem & { value: string };
 type RemotePick = vscode.QuickPickItem & { value: string };
+type PatchActionPick = vscode.QuickPickItem & { value: GerritPatchAction };
 
 // 国际化文本
 const i18n = {
@@ -59,7 +61,20 @@ const i18n = {
     reviewerSelectPlaceholder: 'Pick presets or type to add reviewers',
     reviewerPresetDescription: 'Preset reviewer',
     reviewerNoneLabel: 'No reviewers',
-    reviewerNoneDescription: 'Push without reviewers'
+    reviewerNoneDescription: 'Push without reviewers',
+    patchCommandTitle: 'Apply a Gerrit patch',
+    patchCommandPrompt: 'Paste the Checkout command copied from Gerrit',
+    patchCommandPlaceholder: 'git fetch <remote-or-url> refs/changes/... && git checkout FETCH_HEAD',
+    patchActionTitle: 'How do you want to apply the Gerrit patch?',
+    patchActionPlaceholder: 'Select an action for FETCH_HEAD',
+    patchAlignLabel: (branch: string) => `$(git-branch) Align current branch (${branch})`,
+    patchAlignDescription: 'Move the current branch to the patch and merge local changes',
+    patchCherryPickLabel: '$(git-commit) Cherry-pick onto current branch',
+    patchCherryPickDescription: 'Keep the current branch history and append the patch commit',
+    patchDetachedHead: 'Aligning a patch requires a checked-out local branch.',
+    patchProgressTitle: (ref: string) => `Fetching and applying ${ref}`,
+    patchAlignSuccess: (branch: string) => `Aligned ${branch} to the Gerrit patch.`,
+    patchCherryPickSuccess: (branch: string) => `Cherry-picked the Gerrit patch onto ${branch}.`
   },
   zh: {
     outputChannelName: 'Gerrit Push',
@@ -109,7 +124,20 @@ const i18n = {
     reviewerSelectPlaceholder: '选择预设或直接输入 reviewer',
     reviewerPresetDescription: '预设 reviewer',
     reviewerNoneLabel: '不添加 reviewer',
-    reviewerNoneDescription: '不指定 reviewer 推送'
+    reviewerNoneDescription: '不指定 reviewer 推送',
+    patchCommandTitle: '应用 Gerrit Patch',
+    patchCommandPrompt: '粘贴从 Gerrit 复制的 Checkout 命令',
+    patchCommandPlaceholder: 'git fetch <remote-or-url> refs/changes/... && git checkout FETCH_HEAD',
+    patchActionTitle: '如何应用 Gerrit Patch？',
+    patchActionPlaceholder: '选择 FETCH_HEAD 的应用方式',
+    patchAlignLabel: (branch: string) => `$(git-branch) 对齐当前分支 (${branch})`,
+    patchAlignDescription: '将当前分支移动到 Patch，并用 merge 保留本地修改',
+    patchCherryPickLabel: '$(git-commit) Cherry-pick 到当前分支',
+    patchCherryPickDescription: '保留当前分支历史，并追加 Patch 提交',
+    patchDetachedHead: '对齐 Patch 需要先 checkout 到一个本地分支。',
+    patchProgressTitle: (ref: string) => `正在获取并应用 ${ref}`,
+    patchAlignSuccess: (branch: string) => `已将 ${branch} 对齐到 Gerrit Patch。`,
+    patchCherryPickSuccess: (branch: string) => `已将 Gerrit Patch cherry-pick 到 ${branch}。`
   }
 };
 
@@ -127,7 +155,7 @@ function getText(key: string): any {
 const outputChannel = vscode.window.createOutputChannel(getText('outputChannelName') as string);
 
 export function activate(context: vscode.ExtensionContext) {
-  const disposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async (sourceControl?: any) => {
+  const pushDisposable = vscode.commands.registerCommand('gerritPush.pushToGerrit', async (sourceControl?: any) => {
     try {
       await pushToGerrit(sourceControl);
     } catch (err) {
@@ -137,7 +165,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(disposable, outputChannel);
+  const patchDisposable = vscode.commands.registerCommand('gerritPush.applyGerritPatch', async (sourceControl?: any) => {
+    try {
+      await applyGerritPatch(sourceControl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      outputChannel.appendLine(`Error: ${message}`);
+      outputChannel.show(true);
+      vscode.window.showErrorMessage(`Gerrit patch failed: ${message}`);
+    }
+  });
+
+  context.subscriptions.push(pushDisposable, patchDisposable, outputChannel);
 }
 
 export function deactivate() {
@@ -145,24 +184,7 @@ export function deactivate() {
 }
 
 async function pushToGerrit(sourceControl?: any) {
-  // 首先尝试从源控制上下文获取仓库（用户从 SCM 面板点击按钮时）
-  let gitRoot: string | undefined;
-  
-  if (sourceControl?.rootUri?.fsPath) {
-    // SCM 面板按钮点击时，sourceControl 包含 rootUri 信息
-    gitRoot = sourceControl.rootUri.fsPath;
-    outputChannel.appendLine(`Using repository from SCM context: ${gitRoot}`);
-  } else {
-    // 降级方案：从活跃编辑器或第一个 workspace folder 推导仓库路径
-    const activeEditor = vscode.window.activeTextEditor;
-    let cwd = activeEditor?.document.uri.fsPath
-      ? vscode.workspace.getWorkspaceFolder(activeEditor.document.uri)?.uri.fsPath
-      : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    
-    if (cwd) {
-      gitRoot = await resolveGitRoot(cwd);
-    }
-  }
+  const gitRoot = await resolveRepositoryRoot(sourceControl);
 
   if (!gitRoot) {
     vscode.window.showErrorMessage(getText('noGitRepo'));
@@ -270,6 +292,130 @@ async function pushToGerrit(sourceControl?: any) {
   );
 
   vscode.window.showInformationMessage(`Pushed HEAD to ${remote} refs/for/${branch}`);
+}
+
+async function applyGerritPatch(sourceControl?: any) {
+  const cwd = await resolveRepositoryRoot(sourceControl);
+  if (!cwd) {
+    vscode.window.showErrorMessage(getText('noGitRepo'));
+    return;
+  }
+
+  const clipboardText = await vscode.env.clipboard.readText();
+  const clipboardCommand = isGerritFetchCommand(clipboardText) ? clipboardText.trim() : '';
+  const command = await vscode.window.showInputBox({
+    title: getText('patchCommandTitle'),
+    prompt: getText('patchCommandPrompt'),
+    placeHolder: getText('patchCommandPlaceholder'),
+    value: clipboardCommand,
+    ignoreFocusOut: true,
+    validateInput: (value) => {
+      try {
+        parseGerritFetchCommand(value);
+        return undefined;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    }
+  });
+  if (command === undefined) {
+    return;
+  }
+
+  const fetchCommand = parseGerritFetchCommand(command);
+  const currentBranch = await getCurrentBranch(cwd);
+  const action = await choosePatchAction(currentBranch);
+  if (!action) {
+    return;
+  }
+  if (action === 'align' && currentBranch === 'HEAD') {
+    vscode.window.showErrorMessage(getText('patchDetachedHead'));
+    return;
+  }
+
+  const applyArgs = buildPatchApplyArgs(action, currentBranch);
+  outputChannel.show(true);
+  outputChannel.appendLine('');
+  outputChannel.appendLine('═══════════════════════════════════════');
+  outputChannel.appendLine('Gerrit Patch Details:');
+  outputChannel.appendLine(`  Current Branch: ${currentBranch}`);
+  outputChannel.appendLine(`  Fetch Remote:   ${fetchCommand.remote}`);
+  outputChannel.appendLine(`  Fetch Ref:      ${fetchCommand.ref}`);
+  outputChannel.appendLine(`  Action:         ${action === 'align' ? 'Align current branch' : 'Cherry-pick'}`);
+  outputChannel.appendLine('═══════════════════════════════════════');
+  outputChannel.appendLine('');
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: getText('patchProgressTitle')(fetchCommand.ref),
+      cancellable: false
+    },
+    async () => {
+      outputChannel.appendLine(`> git fetch ${formatCommandArg(fetchCommand.remote)} ${formatCommandArg(fetchCommand.ref)}`);
+      await runGit(['fetch', fetchCommand.remote, fetchCommand.ref], cwd, true);
+      outputChannel.appendLine(`> git ${applyArgs.map(formatCommandArg).join(' ')}`);
+      await runGit(applyArgs, cwd, true);
+    }
+  );
+
+  const successMessage = action === 'align'
+    ? getText('patchAlignSuccess')(currentBranch)
+    : getText('patchCherryPickSuccess')(currentBranch);
+  vscode.window.showInformationMessage(successMessage);
+}
+
+async function resolveRepositoryRoot(sourceControl?: any): Promise<string | undefined> {
+  if (sourceControl?.rootUri?.fsPath) {
+    const gitRoot = sourceControl.rootUri.fsPath;
+    outputChannel.appendLine(`Using repository from SCM context: ${gitRoot}`);
+    return gitRoot;
+  }
+
+  const activeEditor = vscode.window.activeTextEditor;
+  const cwd = activeEditor?.document.uri.fsPath
+    ? vscode.workspace.getWorkspaceFolder(activeEditor.document.uri)?.uri.fsPath
+    : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  return cwd ? resolveGitRoot(cwd) : undefined;
+}
+
+async function choosePatchAction(currentBranch: string): Promise<GerritPatchAction | undefined> {
+  const picks: PatchActionPick[] = [];
+  if (currentBranch !== 'HEAD') {
+    picks.push({
+      label: getText('patchAlignLabel')(currentBranch),
+      description: getText('patchAlignDescription'),
+      detail: `git checkout -m -B ${currentBranch} FETCH_HEAD`,
+      value: 'align'
+    });
+  }
+  picks.push({
+    label: getText('patchCherryPickLabel'),
+    description: getText('patchCherryPickDescription'),
+    detail: 'git cherry-pick FETCH_HEAD',
+    value: 'cherryPick'
+  });
+
+  const selection = await vscode.window.showQuickPick(picks, {
+    title: getText('patchActionTitle'),
+    placeHolder: getText('patchActionPlaceholder'),
+    ignoreFocusOut: true
+  });
+  return selection?.value;
+}
+
+function isGerritFetchCommand(command: string): boolean {
+  try {
+    parseGerritFetchCommand(command);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatCommandArg(arg: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 async function resolveGitRoot(cwd: string): Promise<string | undefined> {

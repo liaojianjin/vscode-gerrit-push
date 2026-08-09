@@ -1,7 +1,7 @@
 {
   "name": "gerrit-push-button",
   "displayName": "Gerrit Push Button",
-  "description": "Adds a Source Control button to push HEAD to Gerrit refs/for/<branch> for review.",
+  "description": "Push HEAD for Gerrit review and fetch patches into the current branch.",
   "icon": "images/icon.png",
   "version": "0.0.8",
   "publisher": "LiaoJianjin",
@@ -18,6 +18,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test test/*.test.js",
     "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
@@ -33,6 +34,12 @@
         "title": "Push HEAD to Gerrit",
         "icon": "images/command-icon.png",
         "category": "Gerrit"
+      },
+      {
+        "command": "gerritPush.applyGerritPatch",
+        "title": "Apply Gerrit Patch",
+        "icon": "$(cloud-download)",
+        "category": "Gerrit"
       }
     ],
     "menus": {
@@ -40,12 +47,22 @@
         {
           "command": "gerritPush.pushToGerrit",
           "when": "scmProvider == git"
+        },
+        {
+          "command": "gerritPush.applyGerritPatch",
+          "when": "scmProvider == git"
         }
       ],
       "scm/title": [
         {
           "command": "gerritPush.pushToGerrit",
           "group": "navigation@3",
+          "when": "scmProvider == git",
+          "args": "$scm"
+        },
+        {
+          "command": "gerritPush.applyGerritPatch",
+          "group": "navigation@4",
           "when": "scmProvider == git",
           "args": "$scm"
         }

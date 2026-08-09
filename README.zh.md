@@ -1,6 +1,6 @@
 # Gerrit Push Button
 
-在 VS Code 源代码管理中添加一个按钮，一键将 `HEAD` 推送到 Gerrit 的 `refs/for/<branch>` 进行评审。
+在 VS Code 源代码管理中添加 Gerrit 工作流按钮：将 `HEAD` 推送到 `refs/for/<branch>` 进行评审，或把 Gerrit Patch 应用到当前分支。
 
 > English version: see `README.en.md`.
 
@@ -10,6 +10,7 @@
 - 可选输入 reviewer，推送为 `refs/for/<branch>%r=<reviewer>`
 - 默认使用当前分支，可通过 `gerritPush.defaultBranch` 覆盖
 - 默认远端为 `origin`，可通过 `gerritPush.remote` 设定
+- 从 Gerrit 复制 Checkout 命令后，可选择将 Patch 对齐或 cherry-pick 到当前分支
 
 ![snipshot](images/snipshot.png)
 
@@ -28,6 +29,16 @@ npm install
 4) 开启后可选择预设 reviewer 并/或输入 reviewer（逗号或空格分隔）。
 5) 确认弹窗 `git push <remote> HEAD:refs/for/<branch>`。
 6) 插件通过 VS Code 的 Git SCM（失败时回退 `git rev-parse`）解析仓库根目录，避免多仓库场景下推错路径。
+
+### 应用 Gerrit Patch
+
+1) 在 Gerrit 的 Download 菜单复制 Checkout 命令，例如 `git fetch <url> refs/changes/... && git checkout FETCH_HEAD`。
+2) 在 Source Control 标题栏点击 **Apply Gerrit Patch**，或从命令面板运行 `Gerrit: Apply Gerrit Patch`。插件会自动预填剪贴板中的有效命令。
+3) 选择应用方式：
+   - **对齐当前分支**：执行 fetch 后运行 `git checkout -m -B <当前分支> FETCH_HEAD`。
+   - **Cherry-pick 到当前分支**：执行 fetch 后运行 `git cherry-pick FETCH_HEAD`。
+
+插件只解析 Gerrit 命令中的 fetch 地址和 `refs/...`，并将参数直接传给 Git，不会把粘贴内容交给 shell 执行。
 
 ## 设置
 - `gerritPush.defaultBranch`：推送到 `refs/for/<branch>` 的默认分支，留空则使用当前分支。
